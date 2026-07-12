@@ -1,0 +1,6 @@
+.tools/
+*.dll
+*.h
+*.so
+*.dylib
+dist/

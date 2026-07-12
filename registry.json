@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "plugins": [
+    {
+      "id": "grok-429-autoban",
+      "name": "Grok 429 Auto Ban",
+      "description": "Grok 免费额度耗尽返回 429 时自动禁用账号，24 小时后自动恢复。",
+      "author": "ywddd",
+      "version": "0.1.0",
+      "repository": "https://github.com/ywddd/grok-429-autoban",
+      "homepage": "https://github.com/ywddd/grok-429-autoban",
+      "license": "MIT",
+      "tags": ["grok", "xai", "scheduler", "usage", "management"]
+    }
+  ]
+}

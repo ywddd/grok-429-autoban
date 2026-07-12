@@ -1,0 +1,43 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            goos: windows
+            ext: dll
+          - os: ubuntu-latest
+            goos: linux
+            ext: so
+          - os: macos-latest
+            goos: darwin
+            ext: dylib
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - uses: msys2/setup-msys2@v2
+        if: matrix.goos == 'windows'
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Build
+        shell: bash
+        run: |
+          export CGO_ENABLED=1
+          if [ "${{ matrix.goos }}" = "windows" ]; then export CC=gcc; fi
+          go build -buildmode=c-shared -o "grok-429-autoban.${{ matrix.ext }}" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grok-429-autoban-${{ matrix.goos }}
+          path: grok-429-autoban.${{ matrix.ext }}
