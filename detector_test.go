@@ -9,6 +9,7 @@ import (
 )
 
 const realGrok429Body = `{"code":"subscription:free-usage-exhausted","error":"You've used all the included free usage for model grok-4.5-build-free for now. Usage resets over a rolling 24-hour window — tokens (actual/limit): 2050798/2000000. Upgrade to a Grok subscription for higher limits: https://grok.com/supergrok"}`
+const realGrok403Body = `{"code":"permission-denied","error":"Access to the chat endpoint is denied. Please ensure you're using the correct credentials. If you believe this is a mistake, please log into console.x.ai and update the permissions, or contact support."}`
 
 func TestDetectRealGrokFreeUsageExhausted(t *testing.T) {
 	now := time.Date(2026, 7, 12, 11, 40, 0, 0, time.UTC)
@@ -45,6 +46,37 @@ func TestDetectRealGrokFreeUsageExhausted(t *testing.T) {
 	}
 }
 
+func TestDetectRealGrokPermissionDenied(t *testing.T) {
+	now := time.Date(2026, 7, 12, 16, 1, 53, 0, time.UTC)
+	record := pluginapi.UsageRecord{
+		Provider: "xai",
+		AuthID:   "xai-account-403",
+		Failed:   true,
+		Failure: pluginapi.UsageFailure{
+			StatusCode: 403,
+			Body:       realGrok403Body,
+		},
+		ResponseHeaders: http.Header{
+			"Date":           []string{"Sun, 12 Jul 2026 16:01:53 GMT"},
+			"X-Should-Retry": []string{"false"},
+		},
+	}
+
+	entry, ok := detectBan(record, defaultPluginConfig(), now)
+	if !ok {
+		t.Fatal("detectBan() did not match real Grok 403 permission-denied")
+	}
+	if entry.ErrorCode != permissionDeniedErrorCode {
+		t.Fatalf("error code = %q", entry.ErrorCode)
+	}
+	if entry.ResetSource != "manual_unban" {
+		t.Fatalf("reset source = %q", entry.ResetSource)
+	}
+	if !entry.ResetAt.Equal(now.AddDate(100, 0, 0)) {
+		t.Fatalf("reset at = %s, want far-future manual unban", entry.ResetAt)
+	}
+}
+
 func TestDetectBanRejectsNonExactMatches(t *testing.T) {
 	base := pluginapi.UsageRecord{
 		Provider: "xai",
@@ -66,6 +98,14 @@ func TestDetectBanRejectsNonExactMatches(t *testing.T) {
 		{"invalid json", func(r *pluginapi.UsageRecord) { r.Failure.Body = "too many requests" }},
 		{"wrong code", func(r *pluginapi.UsageRecord) { r.Failure.Body = `{"code":"rate_limit"}` }},
 		{"missing code", func(r *pluginapi.UsageRecord) { r.Failure.Body = `{"error":"rolling 24-hour window"}` }},
+		{"403 wrong code", func(r *pluginapi.UsageRecord) {
+			r.Failure.StatusCode = 403
+			r.Failure.Body = `{"code":"forbidden"}`
+		}},
+		{"403 without code", func(r *pluginapi.UsageRecord) {
+			r.Failure.StatusCode = 403
+			r.Failure.Body = `{"error":"Access denied"}`
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

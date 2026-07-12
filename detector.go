@@ -10,7 +10,10 @@ import (
 	"grok-429-autoban/cpasdk/pluginapi"
 )
 
-const exhaustedErrorCode = "subscription:free-usage-exhausted"
+const (
+	exhaustedErrorCode        = "subscription:free-usage-exhausted"
+	permissionDeniedErrorCode = "permission-denied"
+)
 
 type banEntry struct {
 	AuthID      string    `json:"auth_id"`
@@ -24,7 +27,7 @@ type banEntry struct {
 
 func detectBan(record pluginapi.UsageRecord, cfg pluginConfig, now time.Time) (banEntry, bool) {
 	provider := normalizeProvider(record.Provider)
-	if provider != "xai" || !record.Failed || record.Failure.StatusCode != http.StatusTooManyRequests {
+	if provider != "xai" || !record.Failed {
 		return banEntry{}, false
 	}
 
@@ -34,12 +37,15 @@ func detectBan(record pluginapi.UsageRecord, cfg pluginConfig, now time.Time) (b
 	}
 
 	errorCode, ok := parseErrorCode(record.Failure.Body)
-	if !ok || errorCode != exhaustedErrorCode {
+	if !ok {
 		return banEntry{}, false
 	}
 
-	fallback := time.Duration(cfg.FallbackHours) * time.Hour
-	resetAt, resetSource := resolveResetAt(record.ResponseHeaders, now, fallback)
+	resetAt, resetSource, ok := resolveBanWindow(record.Failure.StatusCode, errorCode, record.ResponseHeaders, now, cfg)
+	if !ok {
+		return banEntry{}, false
+	}
+
 	return banEntry{
 		AuthID:      authID,
 		Provider:    provider,
@@ -49,6 +55,21 @@ func detectBan(record pluginapi.UsageRecord, cfg pluginConfig, now time.Time) (b
 		ResetSource: resetSource,
 		TraceID:     firstHeader(record.ResponseHeaders, "X-Request-Id"),
 	}, true
+}
+
+func resolveBanWindow(status int, errorCode string, headers http.Header, now time.Time, cfg pluginConfig) (time.Time, string, bool) {
+	switch {
+	case status == http.StatusTooManyRequests && errorCode == exhaustedErrorCode:
+		fallback := time.Duration(cfg.FallbackHours) * time.Hour
+		resetAt, resetSource := resolveResetAt(headers, now, fallback)
+		return resetAt, resetSource, true
+	case status == http.StatusForbidden && errorCode == permissionDeniedErrorCode:
+		// Permission issues are not temporary quota windows. Keep the account out of
+		// the pool until an operator unbans it manually.
+		return now.AddDate(100, 0, 0), "manual_unban", true
+	default:
+		return time.Time{}, "", false
+	}
 }
 
 func normalizeProvider(provider string) string {

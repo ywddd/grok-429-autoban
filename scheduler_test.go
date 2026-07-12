@@ -55,7 +55,7 @@ func TestSchedulerRestoresExpiredGrokBan(t *testing.T) {
 	}
 }
 
-func TestHandleUsageRecordsOnlyExactGrokBan(t *testing.T) {
+func TestHandleUsageRecordsExactGrokBans(t *testing.T) {
 	oldStore := activeStore
 	activeStore = newBanStore()
 	defer func() { activeStore = oldStore }()
@@ -73,8 +73,20 @@ func TestHandleUsageRecordsOnlyExactGrokBan(t *testing.T) {
 		t.Fatal("exact Grok 429 was not stored")
 	}
 
+	record.AuthID = "auth-403"
+	record.Failure = pluginapi.UsageFailure{StatusCode: 403, Body: realGrok403Body}
+	if _, err := handleUsageRecord(record, defaultPluginConfig(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if entry, ok := activeStore.Get("auth-403"); !ok {
+		t.Fatal("exact Grok 403 was not stored")
+	} else if entry.ErrorCode != permissionDeniedErrorCode || entry.ResetSource != "manual_unban" {
+		t.Fatalf("403 entry = %#v", entry)
+	}
+
 	record.Failure.Body = `{"code":"rate_limit"}`
 	record.AuthID = "auth-2"
+	record.Failure.StatusCode = 429
 	if _, err := handleUsageRecord(record, defaultPluginConfig(), time.Now()); err != nil {
 		t.Fatal(err)
 	}

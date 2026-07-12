@@ -16,12 +16,12 @@ func managementRegistration() pluginapi.ManagementRegistrationResponse {
 	handler := managementHandler{}
 	return pluginapi.ManagementRegistrationResponse{
 		Routes: []pluginapi.ManagementRoute{
-			{Method: http.MethodGet, Path: "/bans", Description: "查看 Grok 429 禁用账号", Handler: handler},
+			{Method: http.MethodGet, Path: "/bans", Description: "查看 Grok 自动禁用账号", Handler: handler},
 			{Method: http.MethodPost, Path: "/unban", Description: "解除单个 Grok 账号禁用", Handler: handler},
 			{Method: http.MethodPost, Path: "/unban-all", Description: "解除全部 Grok 账号禁用", Handler: handler},
 		},
 		Resources: []pluginapi.ResourceRoute{
-			{Path: "/status", Menu: "Grok 429 自动禁用", Description: "查看 Grok 429 自动禁用状态", Handler: handler},
+			{Path: "/status", Menu: "Grok 自动禁用", Description: "查看 Grok 自动禁用状态", Handler: handler},
 		},
 	}
 }
@@ -96,9 +96,9 @@ func jsonManagementResponse(status int, value any) pluginapi.ManagementResponse 
 
 func managementStatusPage(_ pluginapi.ManagementRequest) (pluginapi.ManagementResponse, error) {
 	body := `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>Grok 429 自动禁用</title>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>Grok 自动禁用</title>
 <style>body{font-family:system-ui,sans-serif;max-width:960px;margin:32px auto;padding:0 20px;color:#1f2937}button{padding:8px 14px;cursor:pointer}table{width:100%;border-collapse:collapse;margin-top:18px}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}</style></head>
-<body><h1>Grok 429 自动禁用</h1><p>只处理 subscription:free-usage-exhausted，默认 24 小时后自动恢复。</p>
+<body><h1>Grok 自动禁用</h1><p>处理 free-usage-exhausted（429，默认 24 小时恢复）和 permission-denied（403，手动解禁）。</p>
 <p><input id="key" type="password" placeholder="CPA Management Key"><button onclick="saveKey()">保存密钥</button></p>
 <button onclick="loadBans()">刷新状态</button><button onclick="unbanAll()">全部解禁</button>
 <table><thead><tr><th>账号</th><th>恢复时间</th><th>来源</th><th>剩余秒数</th><th>操作</th></tr></thead><tbody id="rows"></tbody></table>
@@ -130,3 +130,4 @@ func handleManagement(raw []byte) ([]byte, error) {
 	}
 	return okEnvelope(response)
 }
+

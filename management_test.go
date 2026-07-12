@@ -76,7 +76,7 @@ func TestManagementResourcePageIsChinese(t *testing.T) {
 		t.Fatalf("page response = %#v, err=%v", response, err)
 	}
 	body := string(response.Body)
-	if !strings.Contains(body, "Grok 429 自动禁用") || !strings.Contains(body, "/bans") {
+	if !strings.Contains(body, "Grok 自动禁用") || !strings.Contains(body, "/bans") {
 		t.Fatalf("page body missing expected text: %s", body)
 	}
 }
