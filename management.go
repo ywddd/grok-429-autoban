@@ -98,7 +98,7 @@ func managementStatusPage(_ pluginapi.ManagementRequest) (pluginapi.ManagementRe
 	body := `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>Grok 自动禁用</title>
 <style>body{font-family:system-ui,sans-serif;max-width:960px;margin:32px auto;padding:0 20px;color:#1f2937}button{padding:8px 14px;cursor:pointer}table{width:100%;border-collapse:collapse;margin-top:18px}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}</style></head>
-<body><h1>Grok 自动禁用</h1><p>处理 free-usage-exhausted（429，默认 24 小时恢复）和 permission-denied（403，手动解禁）。</p>
+<body><h1>Grok 自动禁用</h1><p>处理 free-usage-exhausted（429，默认 24 小时恢复）、permission-denied（403）和 401 认证失败（手动解禁）。</p>
 <p><input id="key" type="password" placeholder="CPA Management Key"><button onclick="saveKey()">保存密钥</button></p>
 <button onclick="loadBans()">刷新状态</button><button onclick="unbanAll()">全部解禁</button>
 <table><thead><tr><th>账号</th><th>恢复时间</th><th>来源</th><th>剩余秒数</th><th>操作</th></tr></thead><tbody id="rows"></tbody></table>

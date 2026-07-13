@@ -13,6 +13,7 @@ import (
 const (
 	exhaustedErrorCode        = "subscription:free-usage-exhausted"
 	permissionDeniedErrorCode = "permission-denied"
+	unauthorizedErrorCode     = "unauthorized"
 )
 
 type banEntry struct {
@@ -36,12 +37,17 @@ func detectBan(record pluginapi.UsageRecord, cfg pluginConfig, now time.Time) (b
 		return banEntry{}, false
 	}
 
-	errorCode, ok := parseErrorCode(record.Failure.Body)
-	if !ok {
+	status := record.Failure.StatusCode
+	errorCode, hasCode := parseErrorCode(record.Failure.Body)
+	if status == http.StatusUnauthorized {
+		if !hasCode {
+			errorCode = unauthorizedErrorCode
+		}
+	} else if !hasCode {
 		return banEntry{}, false
 	}
 
-	resetAt, resetSource, ok := resolveBanWindow(record.Failure.StatusCode, errorCode, record.ResponseHeaders, now, cfg)
+	resetAt, resetSource, ok := resolveBanWindow(status, errorCode, record.ResponseHeaders, now, cfg)
 	if !ok {
 		return banEntry{}, false
 	}
@@ -66,6 +72,10 @@ func resolveBanWindow(status int, errorCode string, headers http.Header, now tim
 	case status == http.StatusForbidden && errorCode == permissionDeniedErrorCode:
 		// Permission issues are not temporary quota windows. Keep the account out of
 		// the pool until an operator unbans it manually.
+		return now.AddDate(100, 0, 0), "manual_unban", true
+	case status == http.StatusUnauthorized:
+		// Auth failures usually mean expired or invalid credentials. Keep the account
+		// out of the pool until an operator unbans it manually.
 		return now.AddDate(100, 0, 0), "manual_unban", true
 	default:
 		return time.Time{}, "", false

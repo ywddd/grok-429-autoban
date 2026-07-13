@@ -4,9 +4,9 @@
     {
       "id": "grok-429-autoban",
       "name": "Grok 429 Auto Ban",
-      "description": "Grok 免费额度 429 或权限拒绝 403 时自动禁用账号；429 默认 24 小时恢复，403 需手动解禁。",
+      "description": "Grok 免费额度 429、权限拒绝 403 或认证失败 401 时自动禁用账号；429 默认 24 小时恢复，401/403 需手动解禁。",
       "author": "ywddd",
-      "version": "0.1.1",
+      "version": "0.1.3",
       "repository": "https://github.com/ywddd/grok-429-autoban",
       "homepage": "https://github.com/ywddd/grok-429-autoban",
       "license": "MIT",

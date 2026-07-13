@@ -77,6 +77,43 @@ func TestDetectRealGrokPermissionDenied(t *testing.T) {
 	}
 }
 
+func TestDetectGrokUnauthorized401(t *testing.T) {
+	now := time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC)
+	record := pluginapi.UsageRecord{
+		Provider: "grok",
+		AuthID:   "xai-account-401",
+		Failed:   true,
+		Failure: pluginapi.UsageFailure{
+			StatusCode: 401,
+			Body:       `{"error":"invalid credentials"}`,
+		},
+	}
+
+	entry, ok := detectBan(record, defaultPluginConfig(), now)
+	if !ok {
+		t.Fatal("detectBan() did not match Grok 401")
+	}
+	if entry.ErrorCode != unauthorizedErrorCode {
+		t.Fatalf("error code = %q", entry.ErrorCode)
+	}
+	if entry.ResetSource != "manual_unban" {
+		t.Fatalf("reset source = %q", entry.ResetSource)
+	}
+	if !entry.ResetAt.Equal(now.AddDate(100, 0, 0)) {
+		t.Fatalf("reset at = %s, want far-future manual unban", entry.ResetAt)
+	}
+
+	// Prefer body code when present.
+	record.Failure.Body = `{"code":"authentication_error","error":"token expired"}`
+	entry, ok = detectBan(record, defaultPluginConfig(), now)
+	if !ok {
+		t.Fatal("detectBan() did not match Grok 401 with body code")
+	}
+	if entry.ErrorCode != "authentication_error" {
+		t.Fatalf("error code = %q", entry.ErrorCode)
+	}
+}
+
 func TestDetectBanRejectsNonExactMatches(t *testing.T) {
 	base := pluginapi.UsageRecord{
 		Provider: "xai",
@@ -105,6 +142,11 @@ func TestDetectBanRejectsNonExactMatches(t *testing.T) {
 		{"403 without code", func(r *pluginapi.UsageRecord) {
 			r.Failure.StatusCode = 403
 			r.Failure.Body = `{"error":"Access denied"}`
+		}},
+		{"401 wrong provider", func(r *pluginapi.UsageRecord) {
+			r.Provider = "openai"
+			r.Failure.StatusCode = 401
+			r.Failure.Body = `{"error":"invalid credentials"}`
 		}},
 	}
 	for _, tt := range tests {

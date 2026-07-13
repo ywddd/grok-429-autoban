@@ -47,7 +47,7 @@ func TestPluginRegistration(t *testing.T) {
 	if got.Metadata.Name != "Grok 429 Auto Ban" {
 		t.Fatalf("name = %q", got.Metadata.Name)
 	}
-	if got.Metadata.Version != "0.1.2" {
+	if got.Metadata.Version != "0.1.3" {
 		t.Fatalf("version = %q", got.Metadata.Version)
 	}
 	if !got.Capabilities.UsagePlugin || !got.Capabilities.Scheduler || !got.Capabilities.ManagementAPI {

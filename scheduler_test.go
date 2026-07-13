@@ -84,6 +84,17 @@ func TestHandleUsageRecordsExactGrokBans(t *testing.T) {
 		t.Fatalf("403 entry = %#v", entry)
 	}
 
+	record.AuthID = "auth-401"
+	record.Failure = pluginapi.UsageFailure{StatusCode: 401, Body: `{"error":"invalid credentials"}`}
+	if _, err := handleUsageRecord(record, defaultPluginConfig(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if entry, ok := activeStore.Get("auth-401"); !ok {
+		t.Fatal("Grok 401 was not stored")
+	} else if entry.ErrorCode != unauthorizedErrorCode || entry.ResetSource != "manual_unban" {
+		t.Fatalf("401 entry = %#v", entry)
+	}
+
 	record.Failure.Body = `{"code":"rate_limit"}`
 	record.AuthID = "auth-2"
 	record.Failure.StatusCode = 429
