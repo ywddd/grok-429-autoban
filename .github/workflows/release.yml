@@ -1,43 +1,163 @@
-name: release
+name: Release Plugin
 
 on:
   push:
     tags:
-      - "v*"
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build or repair
+        required: true
+        default: v0.1.4
+
+permissions:
+  contents: write
 
 jobs:
   build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            goos: windows
-            ext: dll
-          - os: ubuntu-latest
-            goos: linux
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
             ext: so
-          - os: macos-latest
-            goos: darwin
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
             ext: dylib
-    runs-on: ${{ matrix.os }}
+          - goos: windows
+            goarch: amd64
+            runner: windows-latest
+            ext: dll
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${INPUT_TAG}"
+          fi
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "invalid release tag: ${tag}" >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release tag
+        uses: actions/checkout@v4
         with:
-          go-version: "1.21"
-      - uses: msys2/setup-msys2@v2
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+          cache: false
+
+      - name: Set up MinGW
+        uses: msys2/setup-msys2@v2
         if: matrix.goos == 'windows'
         with:
           msystem: UCRT64
           update: true
           install: mingw-w64-ucrt-x86_64-gcc
-      - name: Build
+          path-type: inherit
+
+      - name: Test
+        run: go test ./... -count=1
+
+      - name: Build dynamic library
+        shell: bash
+        env:
+          CGO_ENABLED: "1"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          if [[ "${GOOS}" == "windows" ]]; then
+            export CC=gcc
+          fi
+          go build \
+            -buildvcs=false \
+            -buildmode=c-shared \
+            -o "grok-429-autoban.${{ matrix.ext }}" \
+            .
+
+      - name: Verify target platform
         shell: bash
         run: |
-          export CGO_ENABLED=1
-          if [ "${{ matrix.goos }}" = "windows" ]; then export CC=gcc; fi
-          go build -buildmode=c-shared -o "grok-429-autoban.${{ matrix.ext }}" .
-      - uses: actions/upload-artifact@v4
+          go version -m "grok-429-autoban.${{ matrix.ext }}" | tee build-info.txt
+          grep -q "GOOS=${{ matrix.goos }}" build-info.txt
+          grep -q "GOARCH=${{ matrix.goarch }}" build-info.txt
+
+      - name: Pack archive
+        id: package
+        shell: pwsh
+        run: |
+          $asset = "grok-429-autoban_${{ steps.release.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip"
+          Compress-Archive -Path "grok-429-autoban.${{ matrix.ext }}" -DestinationPath $asset -Force
+          "asset=$asset" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: grok-429-autoban-${{ matrix.goos }}
-          path: grok-429-autoban.${{ matrix.ext }}
+          name: ${{ steps.package.outputs.asset }}
+          path: ${{ steps.package.outputs.asset }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release assets
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${INPUT_TAG}"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd assets
+          sha256sum *.zip > checksums.txt
+          cat checksums.txt
+
+      - name: Upload assets to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" assets/*.zip assets/checksums.txt --clobber
+          else
+            gh release create "${RELEASE_TAG}" \
+              --title "Grok 429 Auto Ban ${RELEASE_TAG}" \
+              --generate-notes \
+              assets/*.zip \
+              assets/checksums.txt
+          fi
