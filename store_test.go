@@ -37,7 +37,10 @@ func TestBanStoreClearsExpiredAndCopiesList(t *testing.T) {
 	store := newBanStore()
 	store.Set(testEntry("expired", time.Unix(10, 0)))
 	store.Set(testEntry("active", time.Unix(200, 0)))
-	store.ClearExpired(time.Unix(100, 0))
+	expired := store.ClearExpired(time.Unix(100, 0))
+	if len(expired) != 1 || expired[0] != "expired" {
+		t.Fatalf("expired = %#v", expired)
+	}
 
 	if _, ok := store.Get("expired"); ok {
 		t.Fatal("expired entry remains")

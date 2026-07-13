@@ -51,3 +51,55 @@ func TestDisableAuthInCPAUsesManagementStatusAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEnableAuthInCPAUsesPagePassword(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer page-password" {
+			t.Fatalf("authorization = %q", got)
+		}
+		var body struct {
+			Name     string `json:"name"`
+			Disabled bool   `json:"disabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Name != "xai-test.json" || body.Disabled {
+			t.Fatalf("body = %#v", body)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","disabled":false}`))
+	}))
+	defer server.Close()
+
+	oldBaseURL := cpaManagementBaseURL
+	oldDo := cpaManagementDo
+	oldPassword := os.Getenv("MANAGEMENT_PASSWORD")
+	defer func() {
+		cpaManagementBaseURL = oldBaseURL
+		cpaManagementDo = oldDo
+		_ = os.Setenv("MANAGEMENT_PASSWORD", oldPassword)
+	}()
+	cpaManagementBaseURL = server.URL
+	cpaManagementDo = server.Client().Do
+	_ = os.Unsetenv("MANAGEMENT_PASSWORD")
+	_ = os.Unsetenv("CPA_MANAGEMENT_KEY")
+
+	if err := enableAuthInCPA("xai-test.json", "page-password"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResolveManagementPasswordPrefersRequestBearer(t *testing.T) {
+	oldPassword := os.Getenv("MANAGEMENT_PASSWORD")
+	defer func() { _ = os.Setenv("MANAGEMENT_PASSWORD", oldPassword) }()
+	_ = os.Setenv("MANAGEMENT_PASSWORD", "env-password")
+
+	headers := http.Header{"Authorization": []string{"Bearer page-password"}}
+	if got := resolveManagementPassword(headers); got != "page-password" {
+		t.Fatalf("password = %q, want page-password", got)
+	}
+	if got := resolveManagementPassword(nil); got != "env-password" {
+		t.Fatalf("env password = %q, want env-password", got)
+	}
+}

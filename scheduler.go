@@ -42,7 +42,13 @@ func handleUsageRecord(record pluginapi.UsageRecord, cfg pluginConfig, now time.
 }
 
 func pickCandidate(req pluginapi.SchedulerPickRequest, store *banStore, now time.Time) pluginapi.SchedulerPickResponse {
-	store.ClearExpired(now)
+	for _, authID := range store.Expired(now) {
+		if errEnable := enableAuthInCPA(authID, ""); errEnable != nil {
+			slog.Warn("grok-429-autoban: failed to re-enable expired auth in CPA", "auth_id", authID, "error", errEnable)
+			continue
+		}
+		store.Delete(authID)
+	}
 	available := make([]pluginapi.SchedulerAuthCandidate, 0, len(req.Candidates))
 	for _, candidate := range req.Candidates {
 		if normalizeProvider(candidate.Provider) == "xai" {

@@ -12,16 +12,17 @@ import (
 
 type managementHandler struct{}
 
+const managementRoutePrefix = "/plugins/" + pluginID
+
 func managementRegistration() pluginapi.ManagementRegistrationResponse {
-	handler := managementHandler{}
 	return pluginapi.ManagementRegistrationResponse{
 		Routes: []pluginapi.ManagementRoute{
-			{Method: http.MethodGet, Path: "/bans", Description: "查看 Grok 自动禁用账号", Handler: handler},
-			{Method: http.MethodPost, Path: "/unban", Description: "解除单个 Grok 账号禁用", Handler: handler},
-			{Method: http.MethodPost, Path: "/unban-all", Description: "解除全部 Grok 账号禁用", Handler: handler},
+			{Method: http.MethodGet, Path: managementRoutePrefix + "/bans", Description: "查看 Grok 自动禁用账号"},
+			{Method: http.MethodPost, Path: managementRoutePrefix + "/unban", Description: "解除单个 Grok 账号禁用"},
+			{Method: http.MethodPost, Path: managementRoutePrefix + "/unban-all", Description: "解除全部 Grok 账号禁用"},
 		},
 		Resources: []pluginapi.ResourceRoute{
-			{Path: "/status", Menu: "Grok 自动禁用", Description: "查看 Grok 自动禁用状态", Handler: handler},
+			{Path: "/status", Menu: "Grok 自动禁用", Description: "查看 Grok 自动禁用状态"},
 		},
 	}
 }
@@ -41,13 +42,42 @@ func dispatchManagement(req pluginapi.ManagementRequest) (pluginapi.ManagementRe
 		if err := json.Unmarshal(req.Body, &body); err != nil || strings.TrimSpace(body.AuthID) == "" {
 			return jsonManagementResponse(http.StatusBadRequest, map[string]string{"error": "missing_auth_id"}), nil
 		}
-		removed := activeStore.Delete(strings.TrimSpace(body.AuthID))
+		authID := strings.TrimSpace(body.AuthID)
+		password := resolveManagementPassword(req.Headers)
+		if errEnable := enableAuthInCPA(authID, password); errEnable != nil {
+			return jsonManagementResponse(http.StatusBadRequest, map[string]string{"error": errEnable.Error()}), nil
+		}
+		removed := activeStore.Delete(authID)
 		saveActiveStore()
-		return jsonManagementResponse(http.StatusOK, map[string]any{"ok": true, "removed": removed}), nil
+		return jsonManagementResponse(http.StatusOK, map[string]any{"ok": true, "removed": removed, "enabled": true}), nil
 	case req.Method == http.MethodPost && strings.HasSuffix(req.Path, "/unban-all"):
-		activeStore.Clear()
+		password := resolveManagementPassword(req.Headers)
+		// time.Time{} lists all entries with ResetAt after zero (all future resets).
+		items := activeStore.List(time.Time{})
+		failures := make([]string, 0)
+		enabled := 0
+		for _, entry := range items {
+			if errEnable := enableAuthInCPA(entry.AuthID, password); errEnable != nil {
+				failures = append(failures, entry.AuthID+": "+errEnable.Error())
+				continue
+			}
+			enabled++
+			_ = activeStore.Delete(entry.AuthID)
+		}
+		if len(failures) == 0 {
+			activeStore.Clear()
+		}
 		saveActiveStore()
-		return jsonManagementResponse(http.StatusOK, map[string]any{"ok": true}), nil
+		status := http.StatusOK
+		if len(failures) > 0 && enabled == 0 {
+			status = http.StatusBadRequest
+		}
+		return jsonManagementResponse(status, map[string]any{
+			"ok":       len(failures) == 0,
+			"enabled":  enabled,
+			"failed":   len(failures),
+			"failures": failures,
+		}), nil
 	case req.Method == http.MethodGet && strings.HasSuffix(req.Path, "/status"):
 		return managementStatusPage(req)
 	default:
@@ -105,10 +135,10 @@ func managementStatusPage(_ pluginapi.ManagementRequest) (pluginapi.ManagementRe
 <script>
 const keyInput = document.getElementById("key"); keyInput.value = localStorage.getItem("grok429ManagementKey") || "";
 function saveKey() { localStorage.setItem("grok429ManagementKey", keyInput.value); }
-async function call(path, options={}) { options.headers = Object.assign({}, options.headers||{}, {"Authorization":"Bearer "+keyInput.value}); const r = await fetch("/v0/management/plugins/grok-429-autoban"+path, options); return await r.json(); }
+async function call(path, options={}) { options.headers = Object.assign({}, options.headers||{}, {"Authorization":"Bearer "+keyInput.value,"Content-Type":"application/json"}); const r = await fetch("/v0/management/plugins/grok-429-autoban"+path, options); const data = await r.json(); if (!r.ok) throw new Error((data && (data.error||data.message)) || ("HTTP "+r.status)); return data; }
 async function loadBans() { const data = await call("/bans"); document.getElementById("rows").innerHTML = (data.bans||[]).map(b => "<tr><td><code>"+esc(b.auth_id)+"</code></td><td>"+esc(b.reset_at)+"</td><td>"+esc(b.reset_source)+"</td><td>"+esc(String(b.remaining_seconds))+"</td><td><button onclick='unban("+JSON.stringify(b.auth_id)+")'>解禁</button></td></tr>").join(""); }
-async function unban(id) { await call("/unban",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({auth_id:id})}); loadBans(); }
-async function unbanAll() { await call("/unban-all",{method:"POST"}); loadBans(); }
+async function unban(id) { try { await call("/unban",{method:"POST",body:JSON.stringify({auth_id:id})}); } catch (e) { alert(String(e.message||e)); } loadBans(); }
+async function unbanAll() { try { const data = await call("/unban-all",{method:"POST",body:"{}"}); if (data && data.failed) alert("部分解禁失败: "+(data.failures||[]).slice(0,3).join("; ")); } catch (e) { alert(String(e.message||e)); } loadBans(); }
 function esc(v) { return String(v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
 loadBans();
 </script></body></html>`

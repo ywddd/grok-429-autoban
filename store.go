@@ -53,14 +53,29 @@ func (s *banStore) Clear() {
 	s.bans = make(map[string]banEntry)
 }
 
-func (s *banStore) ClearExpired(now time.Time) {
+func (s *banStore) ClearExpired(now time.Time) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	expired := make([]string, 0)
 	for authID, entry := range s.bans {
 		if !entry.ResetAt.After(now) {
+			expired = append(expired, authID)
 			delete(s.bans, authID)
 		}
 	}
+	return expired
+}
+
+func (s *banStore) Expired(now time.Time) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	expired := make([]string, 0)
+	for authID, entry := range s.bans {
+		if !entry.ResetAt.After(now) {
+			expired = append(expired, authID)
+		}
+	}
+	return expired
 }
 
 func (s *banStore) List(now time.Time) []banEntry {
