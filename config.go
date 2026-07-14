@@ -117,13 +117,20 @@ func configure(raw []byte) error {
 func purgeLegacyQuotaBans() int {
 	items := activeStore.List(time.Time{})
 	purged := 0
+	now := time.Now()
 	for _, entry := range items {
 		if entry.ErrorCode != exhaustedErrorCode {
 			continue
 		}
 		// Best-effort re-enable so Manager Plus can own future 429 cooldowns.
 		if err := enableAuthInCPA(entry.AuthID, ""); err != nil {
-			slog.Warn("grok-429-autoban: failed to re-enable legacy quota ban", "auth_id", entry.AuthID, "error", err)
+			// Startup may race the management API. Keep a past ResetAt so the next
+			// scheduler pick retries enableAuthInCPA via the expired-ban path.
+			slog.Warn("grok-429-autoban: failed to re-enable legacy quota ban; will retry on schedule", "auth_id", entry.AuthID, "error", err)
+			entry.ResetAt = now.Add(-time.Second)
+			entry.ResetSource = "legacy_quota_handoff"
+			activeStore.Set(entry)
+			continue
 		}
 		if activeStore.Delete(entry.AuthID) {
 			purged++
