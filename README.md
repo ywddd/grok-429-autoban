@@ -2,7 +2,7 @@
 
 CLIProxyAPI（CPA）插件：检测 Grok/xAI 账号的权限拒绝（403）和认证失败（401），并自动将对应账号移出调度池。
 
-插件 ID / 仓库：`grok-autoban`（原 `grok-429-autoban`，v0.1.7 起更名）。
+插件 ID / 仓库：`grok-autoban`（原 `grok-429-autoban`，v0.1.8 起更名）。
 
 > 从 `v0.1.5` 起，本插件**不再处理**免费额度耗尽（429 `subscription:free-usage-exhausted`）。
 > 该项请使用 CPA Manager Plus `v1.11.0+` 的 **Provider 额度冷却**。
@@ -54,7 +54,10 @@ plugins:
 Windows amd64：
 
 ```text
+plugins/linux/amd64/grok-autoban.so
+plugins/linux/arm64/grok-autoban.so
 plugins/windows/amd64/grok-autoban.dll
+plugins/darwin/arm64/grok-autoban.dylib
 ```
 
 也可以直接放在 CPA 的 `plugins/` 目录。文件名去掉扩展名就是插件 ID。
