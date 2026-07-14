@@ -44,7 +44,7 @@ import (
 const (
 	pluginName    = "Grok 429 Auto Ban"
 	pluginID      = "grok-429-autoban"
-	pluginVersion = "0.1.4"
+	pluginVersion = "0.1.5"
 )
 
 func handleMethod(method string, request []byte) ([]byte, error) {
@@ -74,7 +74,7 @@ func pluginRegistration() registration {
 			Author:           "ywddd",
 			GitHubRepository: "https://github.com/ywddd/grok-429-autoban",
 			ConfigFields: []pluginapi.ConfigField{
-				{Name: "fallback_hours", Type: pluginapi.ConfigFieldTypeInteger, Description: "没有准确恢复时间时的禁用小时数，默认 24。"},
+				{Name: "fallback_hours", Type: pluginapi.ConfigFieldTypeInteger, Description: "兼容字段。v0.1.5 起不再处理 429，此配置不再影响禁用行为。"},
 				{Name: "persist_state", Type: pluginapi.ConfigFieldTypeBoolean, Description: "是否将禁用状态保存到 state_file。"},
 				{Name: "state_file", Type: pluginapi.ConfigFieldTypeString, Description: "禁用状态 JSON 路径；留空时仅保存在内存。"},
 				{Name: "log_matches", Type: pluginapi.ConfigFieldTypeBoolean, Description: "是否记录命中的自动禁用日志。"},

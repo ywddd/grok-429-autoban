@@ -17,12 +17,12 @@ const managementRoutePrefix = "/plugins/" + pluginID
 func managementRegistration() pluginapi.ManagementRegistrationResponse {
 	return pluginapi.ManagementRegistrationResponse{
 		Routes: []pluginapi.ManagementRoute{
-			{Method: http.MethodGet, Path: managementRoutePrefix + "/bans", Description: "查看 Grok 自动禁用账号"},
+			{Method: http.MethodGet, Path: managementRoutePrefix + "/bans", Description: "查看 Grok 401/403 自动禁用账号"},
 			{Method: http.MethodPost, Path: managementRoutePrefix + "/unban", Description: "解除单个 Grok 账号禁用"},
 			{Method: http.MethodPost, Path: managementRoutePrefix + "/unban-all", Description: "解除全部 Grok 账号禁用"},
 		},
 		Resources: []pluginapi.ResourceRoute{
-			{Path: "/status", Menu: "Grok 自动禁用", Description: "查看 Grok 自动禁用状态"},
+			{Path: "/status", Menu: "Grok 自动禁用", Description: "查看 Grok 401/403 自动禁用状态"},
 		},
 	}
 }
@@ -127,21 +127,138 @@ func jsonManagementResponse(status int, value any) pluginapi.ManagementResponse 
 func managementStatusPage(_ pluginapi.ManagementRequest) (pluginapi.ManagementResponse, error) {
 	body := `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>Grok 自动禁用</title>
-<style>body{font-family:system-ui,sans-serif;max-width:960px;margin:32px auto;padding:0 20px;color:#1f2937}button{padding:8px 14px;cursor:pointer}table{width:100%;border-collapse:collapse;margin-top:18px}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}</style></head>
-<body><h1>Grok 自动禁用</h1><p>处理 free-usage-exhausted（429，默认 24 小时恢复）、permission-denied（403）和 401 认证失败（手动解禁）。</p>
-<p><input id="key" type="password" placeholder="CPA Management Key"><button onclick="saveKey()">保存密钥</button></p>
-<button onclick="loadBans()">刷新状态</button><button onclick="unbanAll()">全部解禁</button>
-<table><thead><tr><th>账号</th><th>恢复时间</th><th>来源</th><th>剩余秒数</th><th>操作</th></tr></thead><tbody id="rows"></tbody></table>
+<style>
+body{font-family:system-ui,sans-serif;max-width:1080px;margin:32px auto;padding:0 20px;color:#1f2937}
+button,select,input{padding:8px 12px;font:inherit}
+button{cursor:pointer}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0}
+table{width:100%;border-collapse:collapse;margin-top:12px}
+td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top}
+.muted{color:#64748b;font-size:13px}
+.pager{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+code{word-break:break-all}
+</style></head>
+<body>
+<h1>Grok 自动禁用</h1>
+<p>只处理权限拒绝（403 <code>permission-denied</code>）和认证失败（401）。免费额度耗尽（429）请交给 CPA Manager Plus 的 Provider 额度冷却。</p>
+<p class="muted">401/403 需手动解禁，不会自动恢复。</p>
+<div class="toolbar">
+  <input id="key" type="password" placeholder="CPA Management Key" style="min-width:260px">
+  <button onclick="saveKey()">保存密钥</button>
+  <button onclick="loadBans()">刷新状态</button>
+  <button onclick="unbanAll()">全部解禁</button>
+  <label>每页
+    <select id="pageSize">
+      <option value="20" selected>20</option>
+      <option value="50">50</option>
+      <option value="100">100</option>
+    </select>
+  </label>
+</div>
+<p id="summary" class="muted"></p>
+<table>
+  <thead>
+    <tr><th>账号</th><th>错误码</th><th>禁用时间</th><th>恢复方式</th><th>操作</th></tr>
+  </thead>
+  <tbody id="rows"></tbody>
+</table>
+<div class="pager">
+  <button id="prevPage" onclick="changePage(-1)">上一页</button>
+  <span id="pageInfo" class="muted"></span>
+  <button id="nextPage" onclick="changePage(1)">下一页</button>
+</div>
 <script>
-const keyInput = document.getElementById("key"); keyInput.value = localStorage.getItem("grok429ManagementKey") || "";
-function saveKey() { localStorage.setItem("grok429ManagementKey", keyInput.value); }
-async function call(path, options={}) { options.headers = Object.assign({}, options.headers||{}, {"Authorization":"Bearer "+keyInput.value,"Content-Type":"application/json"}); const r = await fetch("/v0/management/plugins/grok-429-autoban"+path, options); const data = await r.json(); if (!r.ok) throw new Error((data && (data.error||data.message)) || ("HTTP "+r.status)); return data; }
-async function loadBans() { const data = await call("/bans"); document.getElementById("rows").innerHTML = (data.bans||[]).map(b => "<tr><td><code>"+esc(b.auth_id)+"</code></td><td>"+esc(b.reset_at)+"</td><td>"+esc(b.reset_source)+"</td><td>"+esc(String(b.remaining_seconds))+"</td><td><button onclick='unban("+JSON.stringify(b.auth_id)+")'>解禁</button></td></tr>").join(""); }
-async function unban(id) { try { await call("/unban",{method:"POST",body:JSON.stringify({auth_id:id})}); } catch (e) { alert(String(e.message||e)); } loadBans(); }
-async function unbanAll() { try { const data = await call("/unban-all",{method:"POST",body:"{}"}); if (data && data.failed) alert("部分解禁失败: "+(data.failures||[]).slice(0,3).join("; ")); } catch (e) { alert(String(e.message||e)); } loadBans(); }
-function esc(v) { return String(v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+const PREFS_KEY = "grok429ManagementPrefs";
+const keyInput = document.getElementById("key");
+const pageSizeSelect = document.getElementById("pageSize");
+let allBans = [];
+let page = 1;
+
+function loadPrefs() {
+  try { return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") || {}; } catch (_) { return {}; }
+}
+function savePrefs(patch) {
+  const next = Object.assign(loadPrefs(), patch || {});
+  localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+}
+const prefs = loadPrefs();
+keyInput.value = prefs.managementKey || localStorage.getItem("grok429ManagementKey") || "";
+if ([20,50,100].includes(Number(prefs.pageSize))) pageSizeSelect.value = String(prefs.pageSize);
+pageSizeSelect.addEventListener("change", () => {
+  savePrefs({ pageSize: Number(pageSizeSelect.value) || 20 });
+  page = 1;
+  renderPage();
+});
+function saveKey() {
+  savePrefs({ managementKey: keyInput.value, pageSize: Number(pageSizeSelect.value) || 20 });
+  localStorage.setItem("grok429ManagementKey", keyInput.value);
+}
+async function call(path, options={}) {
+  options.headers = Object.assign({}, options.headers||{}, {
+    "Authorization":"Bearer "+keyInput.value,
+    "Content-Type":"application/json"
+  });
+  const r = await fetch("/v0/management/plugins/grok-429-autoban"+path, options);
+  const data = await r.json();
+  if (!r.ok) throw new Error((data && (data.error||data.message)) || ("HTTP "+r.status));
+  return data;
+}
+function pageSize() {
+  const n = Number(pageSizeSelect.value) || 20;
+  return [20,50,100].includes(n) ? n : 20;
+}
+function totalPages() {
+  return Math.max(1, Math.ceil(allBans.length / pageSize()));
+}
+function renderPage() {
+  const size = pageSize();
+  const pages = totalPages();
+  if (page > pages) page = pages;
+  if (page < 1) page = 1;
+  const start = (page - 1) * size;
+  const slice = allBans.slice(start, start + size);
+  document.getElementById("rows").innerHTML = slice.map(b =>
+    "<tr>" +
+    "<td><code>"+esc(b.auth_id)+"</code></td>" +
+    "<td>"+esc(b.error_code || "")+"</td>" +
+    "<td>"+esc(b.banned_at || "")+"</td>" +
+    "<td>"+esc(b.reset_source || "")+"</td>" +
+    "<td><button onclick='unban("+JSON.stringify(b.auth_id)+")'>解禁</button></td>" +
+    "</tr>"
+  ).join("");
+  document.getElementById("summary").textContent = "共 " + allBans.length + " 个禁用账号";
+  document.getElementById("pageInfo").textContent = "第 " + page + " / " + pages + " 页";
+  document.getElementById("prevPage").disabled = page <= 1;
+  document.getElementById("nextPage").disabled = page >= pages;
+}
+function changePage(delta) {
+  page += delta;
+  renderPage();
+}
+async function loadBans() {
+  const data = await call("/bans");
+  allBans = Array.isArray(data.bans) ? data.bans : [];
+  page = 1;
+  renderPage();
+}
+async function unban(id) {
+  try { await call("/unban",{method:"POST",body:JSON.stringify({auth_id:id})}); }
+  catch (e) { alert(String(e.message||e)); }
+  loadBans();
+}
+async function unbanAll() {
+  try {
+    const data = await call("/unban-all",{method:"POST",body:"{}"});
+    if (data && data.failed) alert("部分解禁失败: "+(data.failures||[]).slice(0,3).join("; "));
+  } catch (e) { alert(String(e.message||e)); }
+  loadBans();
+}
+function esc(v) {
+  return String(v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
 loadBans();
-</script></body></html>`
+</script>
+</body></html>`
 	return pluginapi.ManagementResponse{
 		StatusCode: http.StatusOK,
 		Headers:    http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},

@@ -122,8 +122,8 @@ func TestHandleUsageRecordsExactGrokBans(t *testing.T) {
 	if _, err := handleUsageRecord(record, defaultPluginConfig(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := activeStore.Get("auth-1"); !ok {
-		t.Fatal("exact Grok 429 was not stored")
+	if _, ok := activeStore.Get("auth-1"); ok {
+		t.Fatal("free-usage-exhausted 429 should not be stored")
 	}
 
 	record.AuthID = "auth-403"

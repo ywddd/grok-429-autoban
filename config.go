@@ -101,7 +101,35 @@ func configure(raw []byte) error {
 			slog.Warn("grok-429-autoban: failed to load state", "error", err)
 		}
 	}
+	// Free-usage 429 is owned by CPA Manager Plus. Drop legacy quota bans so this
+	// plugin only tracks 401/403 permanent disables going forward.
+	if purged := purgeLegacyQuotaBans(); purged > 0 {
+		slog.Info("grok-429-autoban: purged legacy free-usage-exhausted bans", "count", purged)
+		if cfg.PersistState && cfg.StateFile != "" {
+			if err := activeStore.Save(cfg.StateFile); err != nil {
+				slog.Warn("grok-429-autoban: failed to save state after purging legacy bans", "error", err)
+			}
+		}
+	}
 	return nil
+}
+
+func purgeLegacyQuotaBans() int {
+	items := activeStore.List(time.Time{})
+	purged := 0
+	for _, entry := range items {
+		if entry.ErrorCode != exhaustedErrorCode {
+			continue
+		}
+		// Best-effort re-enable so Manager Plus can own future 429 cooldowns.
+		if err := enableAuthInCPA(entry.AuthID, ""); err != nil {
+			slog.Warn("grok-429-autoban: failed to re-enable legacy quota ban", "auth_id", entry.AuthID, "error", err)
+		}
+		if activeStore.Delete(entry.AuthID) {
+			purged++
+		}
+	}
+	return purged
 }
 
 func loadedConfig() pluginConfig {
