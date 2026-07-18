@@ -17,12 +17,12 @@ const managementRoutePrefix = "/plugins/" + pluginID
 func managementRegistration() pluginapi.ManagementRegistrationResponse {
 	return pluginapi.ManagementRegistrationResponse{
 		Routes: []pluginapi.ManagementRoute{
-			{Method: http.MethodGet, Path: managementRoutePrefix + "/bans", Description: "查看 Grok 401/403 自动禁用账号"},
+			{Method: http.MethodGet, Path: managementRoutePrefix + "/bans", Description: "查看 Grok 401/403/429 自动禁用账号"},
 			{Method: http.MethodPost, Path: managementRoutePrefix + "/unban", Description: "解除单个 Grok 账号禁用"},
 			{Method: http.MethodPost, Path: managementRoutePrefix + "/unban-all", Description: "解除全部 Grok 账号禁用"},
 		},
 		Resources: []pluginapi.ResourceRoute{
-			{Path: "/status", Menu: "Grok 自动禁用", Description: "查看 Grok 401/403 自动禁用状态"},
+			{Path: "/status", Menu: "Grok 自动禁用", Description: "查看 Grok 401/403/429 自动禁用状态"},
 		},
 	}
 }
@@ -153,8 +153,8 @@ code{word-break:break-all}
 </style></head>
 <body>
 <h1>Grok 自动禁用</h1>
-<p>只处理权限拒绝（403 <code>permission-denied</code>）和认证失败（401）。免费额度耗尽（429）请交给 CPA Manager Plus 的 Provider 额度冷却。</p>
-<p class="muted">401/403 需手动解禁，不会自动恢复。</p>
+<p>处理 free-usage-exhausted（429，默认 24 小时恢复）、permission-denied（403）和 401 认证失败（手动解禁）。</p>
+<p class="muted">401/403 需手动解禁；429 free-usage-exhausted 默认 24 小时后自动恢复。</p>
 <div class="toolbar">
   <input id="key" type="password" placeholder="CPA Management Key" style="min-width:260px">
   <button onclick="saveKey()">保存密钥</button>
